@@ -174,7 +174,7 @@ function CodeBlock({ language, code }) {
     <div className="codeBlock">
       <div className="codeHeader">
         <div className="codeLang">{language}</div>
-        <button className="codeCopyBtn" onClick={onCopy}>
+        <button className="codeCopyBtn" onClick={onCopy} type="button">
           {copied ? "Скопировано" : "Копировать"}
         </button>
       </div>
@@ -201,6 +201,30 @@ function CodeBlock({ language, code }) {
   );
 }
 
+function MarkdownMessage({ content }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        code(props) {
+          const { className, children } = props;
+          const match = /language-(\w+)/.exec(className || "");
+          const codeText = String(children || "").replace(/\n$/, "");
+          const isBlock = Boolean(match) || codeText.includes("\n");
+
+          if (!isBlock) {
+            return <code className="inlineCode">{children}</code>;
+          }
+
+          return <CodeBlock language={match?.[1] || "text"} code={codeText} />;
+        }
+      }}
+    >
+      {content || ""}
+    </ReactMarkdown>
+  );
+}
+
 function ChatMessage({ message }) {
   const isStreaming = message.role === "assistant" && message.streaming;
 
@@ -213,7 +237,11 @@ function ChatMessage({ message }) {
               <div className="messageAttachments">
                 {message.attachments.map((file) => (
                   <div key={file.id} className="messageAttachmentThumb">
-                    {file.type?.startsWith("image/") ? <img src={file.previewUrl} alt={file.name} /> : <div className="filePill">{file.name}</div>}
+                    {file.type?.startsWith("image/") ? (
+                      <img src={file.previewUrl} alt={file.name} />
+                    ) : (
+                      <div className="filePill">{file.name}</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -222,27 +250,7 @@ function ChatMessage({ message }) {
           </div>
         ) : (
           <div className={isStreaming ? "streamingMessage" : ""}>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code({ inline, className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || "");
-                  const codeText = String(children).replace(/\n$/, "");
-
-                  if (inline) {
-                    return (
-                      <code className="inlineCode" {...props}>
-                        {children}
-                      </code>
-                    );
-                  }
-
-                  return <CodeBlock language={match?.[1] || "text"} code={codeText} />;
-                }
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+            <MarkdownMessage content={message.content} />
             {isStreaming && <span className="streamCursor" />}
           </div>
         )}
@@ -721,13 +729,20 @@ export default function Home() {
 
   return (
     <main className="appShell">
-      <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={handleImageSelect} />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        multiple
+        hidden
+        onChange={handleImageSelect}
+      />
       <input ref={fileInputRef} type="file" multiple hidden onChange={handleFileSelect} />
 
       {!sidebarCollapsed && (
         <aside className="sidebar">
           <div className="sidebarTop">
-            <button className="newChatBtn" onClick={createChat}>
+            <button className="newChatBtn" onClick={createChat} type="button">
               <PenIcon />
               <span>Новый чат</span>
             </button>
@@ -754,21 +769,21 @@ export default function Home() {
                         }}
                         autoFocus
                       />
-                      <button className="historyMiniBtn" onClick={saveRenameChat}>
+                      <button className="historyMiniBtn" onClick={saveRenameChat} type="button">
                         OK
                       </button>
                     </div>
                   ) : (
                     <>
-                      <button className="historyItemMain" onClick={() => setActiveChatId(chat.id)}>
+                      <button className="historyItemMain" onClick={() => setActiveChatId(chat.id)} type="button">
                         <span className="historyTitle">{chat.title || "Новый чат"}</span>
                       </button>
 
                       <div className="historyActions">
-                        <button className="historyIconBtn" onClick={() => startRenameChat(chat)} title="Переименовать">
+                        <button className="historyIconBtn" onClick={() => startRenameChat(chat)} title="Переименовать" type="button">
                           <EditIcon />
                         </button>
-                        <button className="historyIconBtn dangerBtn" onClick={() => deleteChat(chat.id)} title="Удалить">
+                        <button className="historyIconBtn dangerBtn" onClick={() => deleteChat(chat.id)} title="Удалить" type="button">
                           <TrashIcon />
                         </button>
                       </div>
@@ -780,7 +795,7 @@ export default function Home() {
           </div>
 
           <div className="sidebarFooter">
-            <button className="profileBtn">
+            <button className="profileBtn" type="button">
               <div className="avatar">A</div>
               <div className="profileMeta">
                 <div className="profileName">Аккаунт</div>
@@ -794,14 +809,19 @@ export default function Home() {
       <section className="mainArea">
         <header className="topbar">
           <div className="topbarLeft">
-            <button className="ghostIconBtn topbarMenuBtn" aria-label="Меню" onClick={() => setSidebarCollapsed((prev) => !prev)}>
+            <button
+              className="ghostIconBtn topbarMenuBtn"
+              aria-label="Меню"
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              type="button"
+            >
               <MenuIcon />
             </button>
 
             <div className="topbarTitle">ChatGPT</div>
 
             <div className="modelPickerWrap" ref={modelRef}>
-              <button className="modelPickerBtn" onClick={() => setModelOpen((prev) => !prev)}>
+              <button className="modelPickerBtn" onClick={() => setModelOpen((prev) => !prev)} type="button">
                 <span>{selectedModelLabel}</span>
                 <ChevronDownIcon />
               </button>
@@ -817,6 +837,7 @@ export default function Home() {
                         setSelectedModel(model.id);
                         setModelOpen(false);
                       }}
+                      type="button"
                     >
                       {model.label}
                     </button>
@@ -857,7 +878,7 @@ export default function Home() {
                     <div className="attachmentName">{file.name}</div>
                     <div className="attachmentType">{file.type || "file"}</div>
                   </div>
-                  <button className="attachmentRemoveBtn" onClick={() => removeAttachment(file.id)}>
+                  <button className="attachmentRemoveBtn" onClick={() => removeAttachment(file.id)} type="button">
                     <CloseIcon />
                   </button>
                 </div>
@@ -867,7 +888,12 @@ export default function Home() {
 
           <div className="composer">
             <div className="plusMenuWrap" ref={menuRef}>
-              <button className={`toolBtn ${menuOpen ? "toolBtnActive" : ""}`} aria-label="Добавить" onClick={() => setMenuOpen((prev) => !prev)}>
+              <button
+                className={`toolBtn ${menuOpen ? "toolBtnActive" : ""}`}
+                aria-label="Добавить"
+                onClick={() => setMenuOpen((prev) => !prev)}
+                type="button"
+              >
                 <PlusIcon />
               </button>
 
@@ -884,6 +910,7 @@ export default function Home() {
                           item.action();
                           setMenuOpen(false);
                         }}
+                        type="button"
                       >
                         <span className="plusMenuIcon">{item.icon}</span>
                         <span>{item.label}</span>
@@ -894,14 +921,32 @@ export default function Home() {
               )}
             </div>
 
-            <button className={`searchModeBtn ${mode === "web" ? "searchModeBtnActive" : ""}`} aria-label="Поиск" onClick={() => setMode((prev) => (prev === "web" ? "default" : "web"))}>
+            <button
+              className={`searchModeBtn ${mode === "web" ? "searchModeBtnActive" : ""}`}
+              aria-label="Поиск"
+              onClick={() => setMode((prev) => (prev === "web" ? "default" : "web"))}
+              type="button"
+            >
               <GlobeIcon />
               <span>Поиск</span>
             </button>
 
-            <textarea className="composerInput" placeholder="Спросите ChatGPT" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} rows={1} />
+            <textarea
+              className="composerInput"
+              placeholder="Спросите ChatGPT"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={onKeyDown}
+              rows={1}
+            />
 
-            <button className={`sendBtn ${canSend ? "active" : ""}`} onClick={sendMessage} disabled={!canSend} aria-label="Отправить">
+            <button
+              className={`sendBtn ${canSend ? "active" : ""}`}
+              onClick={sendMessage}
+              disabled={!canSend}
+              aria-label="Отправить"
+              type="button"
+            >
               <ArrowUpIcon />
             </button>
           </div>
@@ -915,7 +960,7 @@ export default function Home() {
                 {mode === "files" && "Файлы"}
                 {mode === "research" && "Глубокое исследование"}
               </div>
-              <button className="modeResetBtn" onClick={() => setMode("default")}>
+              <button className="modeResetBtn" onClick={() => setMode("default")} type="button">
                 Сбросить
               </button>
             </div>
