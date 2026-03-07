@@ -1,0 +1,3 @@
+npm install
+cp .env.local.example .env.local
+npm run dev
