@@ -1,73 +1,103 @@
+import { NextResponse } from "next/server";
+
 export const runtime = "nodejs";
 
 export async function POST(req) {
   try {
-    const body = await req.json();
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    const model = body.model || process.env.OPENAI_MODEL || "gpt-5.4";
+    const { messages, model, stream } = await req.json();
 
-    const upstreamBody = {
-      model,
-      messages,
-      stream: false
-    };
+    const apiKey = process.env.OPENROUTER_API_KEY;
 
-    const response = await fetch(
-      `${process.env.OPENAI_BASE_URL || "https://sosiskibot.ru/api/v1"}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify(upstreamBody)
-      }
-    );
+    if (!apiKey) {
+      return NextResponse.json({ error: "OPENROUTER_API_KEY is not set" }, { status: 500 });
+    }
 
-    const rawText = await response.text();
+    const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+        "X-Title": "Imba Chat"
+      },
+      body: JSON.stringify({
+        model: model || "gpt-5.4",
+        messages,
+        stream: Boolean(stream)
+      })
+    });
 
-    if (!response.ok) {
-      return Response.json(
+    if (!upstream.ok) {
+      const errText = await upstream.text();
+      return NextResponse.json(
         {
           error: "Upstream API error",
-          status: response.status,
-          raw: rawText || null,
-          requestBody: upstreamBody
+          details: errText
         },
-        { status: 500 }
+        { status: upstream.status }
       );
     }
 
-    let data;
-
-    try {
-      data = JSON.parse(rawText);
-    } catch {
-      return Response.json(
-        {
-          error: "Invalid JSON from upstream",
-          raw: rawText
-        },
-        { status: 500 }
-      );
+    if (!stream) {
+      const data = await upstream.json();
+      const text = data?.choices?.[0]?.message?.content || "";
+      return NextResponse.json({ text });
     }
 
-    const text =
-      data?.choices?.[0]?.message?.content ||
-      data?.message?.content ||
-      data?.response ||
-      data?.text ||
-      "";
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
 
-    return Response.json({
-      text,
-      raw: data
+    const readable = new ReadableStream({
+      async start(controller) {
+        const reader = upstream.body.getReader();
+        let buffer = "";
+
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
+
+              const data = trimmed.slice(5).trim();
+              if (data === "[DONE]") continue;
+
+              try {
+                const json = JSON.parse(data);
+                const token = json?.choices?.[0]?.delta?.content || "";
+                if (token) {
+                  controller.enqueue(encoder.encode(token));
+                }
+              } catch {}
+            }
+          }
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
+      }
+    });
+
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive"
+      }
     });
   } catch (error) {
-    return Response.json(
+    return NextResponse.json(
       {
-        error: "Route error",
-        details: error?.message || "Unknown error"
+        error: "Server error",
+        details: error.message
       },
       { status: 500 }
     );
