@@ -29,14 +29,7 @@ const MODE_PRESETS = {
 function ArrowUpIcon() {
   return (
     <svg viewBox="0 0 24 24" className="sendIcon">
-      <path
-        d="M12 17V7M12 7L8.8 10.2M12 7l3.2 3.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M12 17V7M12 7L8.8 10.2M12 7l3.2 3.2" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -146,10 +139,6 @@ function EditIcon() {
   );
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -188,11 +177,6 @@ function CodeBlock({ language, code }) {
           fontSize: "14px",
           lineHeight: "1.65",
           borderRadius: "0 0 18px 18px"
-        }}
-        codeTagProps={{
-          style: {
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-          }
         }}
       >
         {code}
@@ -237,11 +221,7 @@ function ChatMessage({ message }) {
               <div className="messageAttachments">
                 {message.attachments.map((file) => (
                   <div key={file.id} className="messageAttachmentThumb">
-                    {file.type?.startsWith("image/") ? (
-                      <img src={file.previewUrl} alt={file.name} />
-                    ) : (
-                      <div className="filePill">{file.name}</div>
-                    )}
+                    {file.type?.startsWith("image/") ? <img src={file.previewUrl} alt={file.name} /> : <div className="filePill">{file.name}</div>}
                   </div>
                 ))}
               </div>
@@ -278,7 +258,6 @@ export default function Home() {
   const modelRef = useRef(null);
   const imageInputRef = useRef(null);
   const fileInputRef = useRef(null);
-  const typingAbortRef = useRef({ aborted: false });
 
   useEffect(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -356,12 +335,6 @@ export default function Home() {
 
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      typingAbortRef.current.aborted = true;
-    };
   }, []);
 
   const activeChat = useMemo(() => chats.find((chat) => chat.id === activeChatId) || null, [chats, activeChatId]);
@@ -453,56 +426,6 @@ export default function Home() {
     );
   };
 
-  const animateAssistantText = async (messageId, fullText) => {
-    typingAbortRef.current = { aborted: false };
-    let current = "";
-
-    for (let i = 0; i < fullText.length; i++) {
-      if (typingAbortRef.current.aborted) return;
-
-      current += fullText[i];
-
-      patchActiveChatMessages((messages) =>
-        messages.map((msg) =>
-          msg.id === messageId
-            ? {
-                ...msg,
-                content: current,
-                streaming: true
-              }
-            : msg
-        )
-      );
-
-      if (i % 3 === 0) {
-        scrollToBottom();
-      }
-
-      const char = fullText[i];
-      if (char === "\n") {
-        await sleep(8);
-      } else if (char === " ") {
-        await sleep(6);
-      } else {
-        await sleep(9);
-      }
-    }
-
-    patchActiveChatMessages((messages) =>
-      messages.map((msg) =>
-        msg.id === messageId
-          ? {
-              ...msg,
-              content: fullText,
-              streaming: false
-            }
-          : msg
-      )
-    );
-
-    scrollToBottom();
-  };
-
   const handleImageSelect = async (event) => {
     const files = Array.from(event.target.files || []);
     const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -551,8 +474,6 @@ export default function Home() {
 
   const sendMessage = async () => {
     if (!activeChat || loading) return;
-
-    typingAbortRef.current.aborted = true;
 
     const value = text.trim();
     if (!value && attachments.length === 0) return;
@@ -680,18 +601,61 @@ export default function Home() {
         body: JSON.stringify({
           model: selectedModel,
           mode,
-          messages: payloadMessages
+          messages: payloadMessages,
+          stream: true
         })
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        throw new Error(data?.raw || data?.details || data?.error || `HTTP ${res.status}`);
+        let errorText = `HTTP ${res.status}`;
+        try {
+          const data = await res.json();
+          errorText = data?.raw || data?.details || data?.error || errorText;
+        } catch {}
+        throw new Error(errorText);
       }
 
-      const fullText = data.text || "Пустой ответ от API";
-      await animateAssistantText(assistantMessageId, fullText);
+      if (!res.body) {
+        throw new Error("Поток ответа недоступен");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { value: chunk, done } = await reader.read();
+        if (done) break;
+
+        const textChunk = decoder.decode(chunk, { stream: true });
+        fullText += textChunk;
+
+        patchActiveChatMessages((messages) =>
+          messages.map((msg) =>
+            msg.id === assistantMessageId
+              ? {
+                  ...msg,
+                  content: fullText,
+                  streaming: true
+                }
+              : msg
+          )
+        );
+
+        scrollToBottom();
+      }
+
+      patchActiveChatMessages((messages) =>
+        messages.map((msg) =>
+          msg.id === assistantMessageId
+            ? {
+                ...msg,
+                content: fullText || "Пустой ответ от API",
+                streaming: false
+              }
+            : msg
+        )
+      );
     } catch (error) {
       patchActiveChatMessages((messages) =>
         messages.map((msg) =>
@@ -729,14 +693,7 @@ export default function Home() {
 
   return (
     <main className="appShell">
-      <input
-        ref={imageInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        multiple
-        hidden
-        onChange={handleImageSelect}
-      />
+      <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={handleImageSelect} />
       <input ref={fileInputRef} type="file" multiple hidden onChange={handleFileSelect} />
 
       {!sidebarCollapsed && (
@@ -749,11 +706,7 @@ export default function Home() {
 
             <div className="historyList">
               {sortedChats.map((chat, index) => (
-                <div
-                  key={chat.id}
-                  className={`historyCard ${chat.id === activeChatId ? "activeHistory" : ""}`}
-                  style={{ animationDelay: `${index * 0.03}s` }}
-                >
+                <div key={chat.id} className={`historyCard ${chat.id === activeChatId ? "activeHistory" : ""}`} style={{ animationDelay: `${index * 0.03}s` }}>
                   {editingChatId === chat.id ? (
                     <div className="historyEditRow">
                       <input
@@ -809,12 +762,7 @@ export default function Home() {
       <section className="mainArea">
         <header className="topbar">
           <div className="topbarLeft">
-            <button
-              className="ghostIconBtn topbarMenuBtn"
-              aria-label="Меню"
-              onClick={() => setSidebarCollapsed((prev) => !prev)}
-              type="button"
-            >
+            <button className="ghostIconBtn topbarMenuBtn" aria-label="Меню" onClick={() => setSidebarCollapsed((prev) => !prev)} type="button">
               <MenuIcon />
             </button>
 
@@ -888,12 +836,7 @@ export default function Home() {
 
           <div className="composer">
             <div className="plusMenuWrap" ref={menuRef}>
-              <button
-                className={`toolBtn ${menuOpen ? "toolBtnActive" : ""}`}
-                aria-label="Добавить"
-                onClick={() => setMenuOpen((prev) => !prev)}
-                type="button"
-              >
+              <button className={`toolBtn ${menuOpen ? "toolBtnActive" : ""}`} aria-label="Добавить" onClick={() => setMenuOpen((prev) => !prev)} type="button">
                 <PlusIcon />
               </button>
 
@@ -921,32 +864,14 @@ export default function Home() {
               )}
             </div>
 
-            <button
-              className={`searchModeBtn ${mode === "web" ? "searchModeBtnActive" : ""}`}
-              aria-label="Поиск"
-              onClick={() => setMode((prev) => (prev === "web" ? "default" : "web"))}
-              type="button"
-            >
+            <button className={`searchModeBtn ${mode === "web" ? "searchModeBtnActive" : ""}`} aria-label="Поиск" onClick={() => setMode((prev) => (prev === "web" ? "default" : "web"))} type="button">
               <GlobeIcon />
               <span>Поиск</span>
             </button>
 
-            <textarea
-              className="composerInput"
-              placeholder="Спросите ChatGPT"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={onKeyDown}
-              rows={1}
-            />
+            <textarea className="composerInput" placeholder="Спросите ChatGPT" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKeyDown} rows={1} />
 
-            <button
-              className={`sendBtn ${canSend ? "active" : ""}`}
-              onClick={sendMessage}
-              disabled={!canSend}
-              aria-label="Отправить"
-              type="button"
-            >
+            <button className={`sendBtn ${canSend ? "active" : ""}`} onClick={sendMessage} disabled={!canSend} aria-label="Отправить" type="button">
               <ArrowUpIcon />
             </button>
           </div>
